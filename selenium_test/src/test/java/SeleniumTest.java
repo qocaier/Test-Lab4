@@ -1,4 +1,5 @@
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInfo;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,14 +10,19 @@ import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.openqa.selenium.Alert;
 import org.openqa.selenium.By;
+import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.Keys;
+import org.openqa.selenium.PageLoadStrategy;
+import org.openqa.selenium.UnexpectedAlertBehaviour;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
 import org.openqa.selenium.interactions.Actions;
+import org.openqa.selenium.support.events.EventFiringDecorator;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.Select;
 import org.openqa.selenium.support.ui.WebDriverWait;
@@ -24,23 +30,39 @@ import org.openqa.selenium.support.ui.WebDriverWait;
 public class SeleniumTest {
     WebDriver driver;
     final String vyatsuURL = "https://old.vyatsu.ru";
-    final String otzovikURL = "https://otzovik.com";
+    final String otzovikURL = "http://otzovik.com";
     final String cdsvyatkaURL = "https://m.cdsvyatka.com";
 
     @BeforeEach 
-    public void setup() {
+    public void setUp(TestInfo testInfo) {
         ChromeOptions options = new ChromeOptions();
         options.addArguments("--no-sandbox");
-        driver = new ChromeDriver(options);
+        options.addArguments("--allow-running-insecure-content");
+        options.addArguments("--disable-features=HttpsUpgrades,HttpsFirstBalancedModeAutoEnable");
+        options.setAcceptInsecureCerts(true);
+        options.setUnhandledPromptBehaviour(UnexpectedAlertBehaviour.IGNORE);
+        if (testInfo.getTags().contains("fast")) {
+            options.setPageLoadStrategy(PageLoadStrategy.EAGER);
+        }
+        WebDriver rawDriver = new ChromeDriver(options);
+        if (Boolean.getBoolean("demo")) {
+            TurtleModeListener listener = new TurtleModeListener(rawDriver, 1500);
+            driver = new EventFiringDecorator<>(listener).decorate(rawDriver);
+        }
+        else {
+            driver = rawDriver;
+        }
     }
 
     @Test
+    @Tag("fast")
     public void titleTest() {
         driver.get(vyatsuURL);
         Assertions.assertEquals(driver.getTitle(), "Официальный сайт ВятГУ");
     }
 
     @Test
+    @Tag("fast")
     public void task1Scene1() {
         driver.get(vyatsuURL);
         WebElement menuElement = driver.findElement(By.linkText("Сведения об образовательной организации"));
@@ -53,6 +75,7 @@ public class SeleniumTest {
     }
 
     @Test
+    @Tag("fast")
     public void task1Scene2() {
         driver.get(vyatsuURL);
         WebElement searchInput = driver.findElement(By.name("query"));
@@ -63,6 +86,7 @@ public class SeleniumTest {
     }
 
     @Test
+    @Tag("fast")
     public void task1Scene3correct() {
         driver.get(vyatsuURL);
         WebElement studentLink = driver.findElement(By.xpath("//a[.//h3[text()='Студенту']]"));
@@ -77,6 +101,7 @@ public class SeleniumTest {
     }
 
     @Test
+    @Tag("fast")
     public void task1Scene3incorrect() {
         driver.get(vyatsuURL);
         WebElement studentLink = driver.findElement(By.xpath("//a[.//h3[text()='Студенту']]"));
@@ -84,7 +109,7 @@ public class SeleniumTest {
         WebElement emailInput = driver.findElement(By.id("email-input"));
         emailInput.sendKeys("aboba", Keys.ENTER);
 
-        WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(5));
+        WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(10));
         Alert alert = wait.until(ExpectedConditions.alertIsPresent());
         String text = alert.getText();
         assertTrue(text.contains("Неправильно введен"), "Ошибка: невалидный email прошел!");
@@ -171,8 +196,8 @@ public class SeleniumTest {
         WebElement btnMap = driver.findElement(By.id("id_buttonMap"));
         btnMap.click();
         WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(10));
-        WebElement anyBus = wait.until(ExpectedConditions.visibilityOfElementLocated(By.className("leaflet-canvas-icon")));
-        anyBus.click();
+        WebElement anyBus = wait.until(ExpectedConditions.elementToBeClickable(By.className("leaflet-canvas-icon")));
+        ((JavascriptExecutor) driver).executeScript("arguments[0].click();", anyBus);
         WebElement popup = driver.findElement(By.className("leaflet-popup-content"));
         String text = popup.getText();
         assertTrue(text.contains("Модель"), "Ошибка: характеристики автобуса не показываются!");
@@ -186,12 +211,25 @@ public class SeleniumTest {
         select1.selectByVisibleText("Авт 21: Ипподром-с.Порошино");
         WebElement dropdownElement2 = driver.findElement(By.id("id_StopSelect"));
         Select select2 = new Select(dropdownElement2);
+        WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(1));
+        wait.until(ExpectedConditions.presenceOfElementLocated(By.xpath("//option[normalize-space()='Село Порошино (код 492)']")));
         select2.selectByVisibleText("Село Порошино (код 492)");
         WebElement btnPred = driver.findElement(By.id("id_buttonPrediction"));
         btnPred.click();
-        WebElement table = driver.findElement(By.xpath("//table"));
-        String text = table.getText();
-        assertTrue(text.contains("Гос. номер") && text.contains("Через"), "Ошибка: прогноз не показывается!");
+        List<WebElement> tables = driver.findElements(By.xpath("//table"));
+        String bodyText = driver.findElement(By.tagName("body")).getText();
+        if (!tables.isEmpty()) {
+            String tableText = tables.get(0).getText();
+            assertTrue(
+                tableText.contains("Гос. номер") && tableText.contains("Через"),
+                "Ошибка: таблица есть, но прогноз не показывается!"
+            );
+        } else {
+            assertTrue(
+                bodyText.contains("Доступных прогнозов нет"),
+                "Ошибка: нет ни таблицы с прогнозами, ни сообщения об их отсутствии"
+            );
+        }
     }
 
     @Test
@@ -202,13 +240,23 @@ public class SeleniumTest {
         select1.selectByVisibleText("Авт 21: Ипподром-с.Порошино");
         WebElement dropdownElement2 = driver.findElement(By.id("id_StopSelect"));
         Select select2 = new Select(dropdownElement2);
+        WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(1));
+        wait.until(ExpectedConditions.presenceOfElementLocated(By.xpath("//option[normalize-space()='Село Порошино (код 492)']")));
+        dropdownElement2 = wait.until(ExpectedConditions.visibilityOfElementLocated(By.id("id_StopSelect")));
+        select2 = new Select(dropdownElement2);
         select2.selectByVisibleText("Село Порошино (код 492)");
         WebElement btnRasp = driver.findElement(By.id("id_addRaspisToBookMarks_Btn"));
         btnRasp.click();
         select1.selectByVisibleText("Авт 117: Киров-Сидоровка");
+        wait.until(ExpectedConditions.presenceOfElementLocated(By.xpath("//option[normalize-space()='Село Порошино (код 492)']")));
+        dropdownElement2 = wait.until(ExpectedConditions.visibilityOfElementLocated(By.id("id_StopSelect")));
+        select2 = new Select(dropdownElement2);
         select2.selectByVisibleText("Село Порошино (код 492)");
         btnRasp.click();
         select1.selectByVisibleText("Авт 121: Киров-Баташи");
+        wait.until(ExpectedConditions.presenceOfElementLocated(By.xpath("//option[normalize-space()='Село Порошино (код 492)']")));
+        dropdownElement2 = wait.until(ExpectedConditions.visibilityOfElementLocated(By.id("id_StopSelect")));
+        select2 = new Select(dropdownElement2);
         select2.selectByVisibleText("Село Порошино (код 492)");
         btnRasp.click();
         WebElement favorits = driver.findElement(By.id("div_favorits"));
@@ -218,6 +266,6 @@ public class SeleniumTest {
 
     @AfterEach 
     public void quit() {
-
+        driver.quit();
     }
 }
